@@ -1,0 +1,174 @@
+---
+title: "Data Mining H1"
+date: "2023-01-27"
+author: "Qin Xia, Wenhan Li, Yufeng Hu"
+output: md_document 
+---
+
+### Title: "Data Mining H1"
+### Date: "2023-01-27"
+### Author: "Qin Xia, Wenhan Li, Yufeng Hu"
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(modelr)
+library(rsample)
+library(mosaic)
+library(caret)
+library(parallel)
+```
+## Question 1
+```{r, echo=FALSE}
+abia <- read.csv("C:\\Users\\cp291\\OneDrive\\桌面\\UT Austin\\MA Econ\\Data Mining\\H1\\ABIA.csv")
+
+abia %>% 
+  filter(Origin == "AUS") %>% 
+  count(Dest) %>% 
+  arrange(desc(n)) %>% 
+  slice(1:30) %>% 
+  ggplot() +
+  geom_col(aes(y = reorder(Dest, n), x = n, fill = n)) +
+  scale_fill_gradient(low = "black", high = "blue") +
+  labs(x = "Number of Commercial Flights", y = "Destination Airport", title = "Top 30 Commercial Flight Destinations from AUS Airport in 2008")
+```
+
+The figure above shows the top 30 commercial flight destinations from the Austin-Bergstrom International Airport in 2008. Not surprisingly, the top three destinations are the Dallas Love Field Airport, Dallas/Fort Worth International Airport, and the George Bush Intercontinental Airport in Houston. This can be attributed to both the high frequency of travel between major metropolitan areas in Texas and the importance of these areas for transfer flights. Other high frequency flight destinations include Phoenix Sky Harbor International Airport, Denver International Airport, and O'Hare International Airport.
+
+## Question 2
+#### A
+
+```{r, echo = FALSE, message=FALSE}
+olympics_top20 <- read.csv("C:\\Users\\cp291\\OneDrive\\桌面\\UT Austin\\MA Econ\\Data Mining\\H1\\olympics_top20.csv")
+
+olympics_top20_Female = olympics_top20 %>% 
+  filter(sex == "F")
+olympics_top20_Female %>%
+ summarize(q95_height = quantile(height, 0.95)) %>% 
+ round(3)
+```
+
+The 95th percentile of heights for female competitors across all Athletics events is 186 cm.
+
+#### B
+```{r, echo = FALSE, message=FALSE}
+olympics_top20_Female %>%
+  group_by(event) %>%
+  summarize(sd_height = sd(height)) %>%
+  summarize(event=event[which.max(sd_height)],max_sd=max(sd_height, na.rm = TRUE))
+```
+
+The single women's event that had the greatest variability in competitor's heights across the entire history of the Olympics, as measured by the standard deviation, is Rowing Women's Coxed Fours.
+
+#### C
+
+```{r, echo = FALSE, message=FALSE}
+olympics_top20_swimmers = olympics_top20 %>% 
+  filter(sport == "Swimming")
+
+
+df_m_c <- data.frame(olympics_top20 %>%
+                       filter(sport == "Swimming", sex == "M" ) %>%
+                       group_by(year) %>%
+                       summarize(avg_age = mean(age, na.rm = TRUE)) %>%
+                       round(3))
+
+
+df_f_c <- data.frame(olympics_top20 %>%
+  filter(sport == "Swimming", sex == "F" ) %>%
+  group_by(year) %>%
+  summarize(avg_age = mean(age, na.rm = TRUE)) %>%
+  round(3))
+
+
+df_all <- olympics_top20 %>% select(sex, age, year, sport) %>%
+ filter(sport == "Swimming") %>% 
+ group_by(year, sex) %>%
+ summarize(avg_age = mean(age, na.rm = TRUE))
+
+
+ggplot(NULL,aes(year, avg_age)) +
+  geom_line(data = df_m_c, col = "red") +
+  geom_line(data = df_f_c, col = "blue") + labs(x = "Years", y = "Age", title = "Trend of Swimmers")
+```
+
+The average age of Olympic swimmers rises slowly with each year. Male and female players showed different trends. There was no women's swimming competition in the early 1900's. The number of male swimmers rose until 1924. With the addition of female swimmers, the number of male swimmers has dropped dramatically since 1924. The average age changed little over the next 50 years. Since 1975, the average age has risen slowly with each year.
+
+## Question 3
+```{r echo=FALSE, warning=FALSE}
+sclass= read.csv("C:\\Users\\cp291\\OneDrive\\桌面\\UT Austin\\MA Econ\\Data Mining\\H1\\sclass.csv") 
+
+s350 <- sclass %>%
+  filter(trim == "350")
+s350_split = initial_split(s350, prop = 0.8)
+s350_train = training(s350_split)
+s350_test = testing(s350_split)
+
+rmse_350 <- data.frame(k = 0, rmse = 0)
+
+for (x in 2:80){
+  kn_350 = knnreg(price ~ mileage, data = s350_train, k = x)
+  rmse <- rmse(kn_350, s350_test)
+  rmse_350[nrow(rmse_350) + 1,] = c(x, rmse)
+}
+rmse_350 = rmse_350[-1,]
+rmse_350 %>% 
+  ggplot() +
+  geom_point(aes(x=k, y=rmse)) +
+  geom_line(aes(x=k, y=rmse)) +
+  labs(x = "K", y = "RMSE", title = "350 RMSE for K in (2, 80)")
+
+rmse_350 <- rmse_350 %>% arrange(rmse)
+print(rmse_350[1,])
+
+op_model_350 = knnreg(price ~ mileage, data = s350_train, k = rmse_350[1,1])
+s350_test = s350_test %>% 
+  mutate(price_pred = predict(op_model_350, s350_test))
+
+p_test = ggplot(data = s350_test) + 
+  geom_point(mapping = aes(x = mileage, y = price), alpha=0.2)+
+  labs(x = "mileage", y= "price", title = "350 True vs. Predict for Optimal K (see above)")
+p_test + geom_line(aes(x = mileage, y = price_pred),color='red', size=1.5) 
+```
+
+Note: since there are 416 observations of the 350 trim and the proportion of testing data used is 0.2, k is set from 2 to 80 to show full trend.
+
+```{r echo=FALSE, warning=FALSE}
+AMG <- sclass %>%
+  filter(trim == "63 AMG")
+AMG_split = initial_split(AMG, prop = 0.8)
+AMG_train = training(AMG_split)
+AMG_test = testing(AMG_split)
+
+rmse_AMG <- data.frame(k = 0, rmse = 0)
+
+for (x in 2:250){
+  kn_AMG = knnreg(price ~ mileage, data = AMG_train, k = x)
+  rmse <- rmse(kn_AMG, AMG_test)
+  rmse_AMG[nrow(rmse_AMG) + 1,] = c(x, rmse)
+}
+rmse_AMG = rmse_AMG[-1,]
+rmse_AMG %>% 
+  ggplot() +
+  geom_point(aes(x=k, y=rmse)) +
+  geom_line(aes(x=k, y=rmse)) +
+  labs(x = "K", y = "RMSE", title = "63 AMG RMSE for K in (2, 250)")
+
+rmse_AMG <- rmse_AMG %>% arrange(rmse)
+print(rmse_AMG[1,])
+
+op_model_AMG = knnreg(price ~ mileage, data = AMG_train, k = rmse_AMG[1,1])
+AMG_test = AMG_test %>% 
+  mutate(price_pred = predict(op_model_AMG, AMG_test))
+
+p_test = ggplot(data = AMG_test) + 
+  geom_point(mapping = aes(x = mileage, y = price), alpha=0.2)+
+  labs(x = "mileage", y= "price", title = "AMG True vs. Predict for Optimal K (see above)")
+p_test + geom_line(aes(x = mileage, y = price_pred),color='red', size=1.5) 
+```
+
+Note: since there are 1413 observations of the 63 AMG trim and the proportion of testing data used is 0.2, k is set from 2 to 250 to show full trend.
+
+After viewing the results, the 63 AMG trim yields a larger optimal value of K. This is because the 63 AMG trim has more than three times the amount of observations as the 350 trim. Because there are more observations, the model can take more data into account and has more flexibility in reducing the overall variance of the model. Of course, this is not always true due to the random nature of the training/testing split. After running the codes multiple times, we observed a few occasions where the 350 trim has a larger optimal value of K, but this is rare.
