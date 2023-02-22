@@ -218,6 +218,7 @@ lm3 <- lm(
     required_car_parking_spaces + total_of_special_requests:adults + adults:reserved_room_type + adults:booking_changes + assigned_room_type:adults,
   data = hotel_train
 )
+lm3[["call"]][[3]]
 rmse (lm3, hotel_test)
 
 phat_test_lm3 <- predict(lm3, hotel_test)
