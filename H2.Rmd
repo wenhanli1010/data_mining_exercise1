@@ -313,17 +313,17 @@ for (i in seq_along(folds)) {
   accuracy <- sum(diag(confusion_out) / sum(confusion_out))
   
   new_row <-
-    c((confusion_out[1, 2] + confusion_out[2, 2]) / sum(confusion_out),
-      (confusion_out[2, 1] + confusion_out[2, 2]) / sum(confusion_out),
+    c(confusion_out[1, 2] + confusion_out[2, 2],
+      confusion_out[2, 1] + confusion_out[2, 2],
       accuracy
     )
   
   df <- rbind(df, new_row)
   colnames(df) <-
-    c("predicted probability", "observed probability", "accuracy")
+    c("predicted", "observed", "accuracy")
 }
 
 df
 ```
 
-The matrix summed up our validation results, with the first column showing the predicted probability in each fold. The total predicted number of bookings with children will be the product of this probability and the number of observations in the fold. The second row is the actual(observed) probability of bookings with children, since the number of observations within each fold is the same for predicted and observed, we can make direct comparison. In general, as are shown in the third column, our best model from part 1 is performing at these accuracy levels. The mean accuracy is at 0.9346. Due to the slight margin of outperformance and the change of data, it is reasonable that the advantage of our best model can be insignificant now in comparison with the second base line, which requires further examination. Nevertheless, there is still visible improvement from the null model.
+The matrix summed up our validation results, with the first column showing the predicted number of bookings with children in each fold.  The second row is the actual(observed) number of bookings with children. In general, as are shown in the third column, our best model from part 1 is performing at these accuracy levels. The mean accuracy is at 0.9346. Due to the slight margin of out performance and the change of data, it is reasonable that the advantage of our best model can be insignificant now in comparison with the second base line, which requires further examination. Nevertheless, there is still visible improvement from the null model.
