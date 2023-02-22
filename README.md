@@ -1,1 +1,1 @@
-# data_mining_exercise1
+# data_mining_exercise
