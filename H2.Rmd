@@ -1,0 +1,328 @@
+---
+title: "Data Mining H2"
+author: "Qin Xia, Wenhan Li, Yufeng Hu"
+date: "2023-02-17"
+output: md_document
+---
+
+### Title: "Data Mining H1"
+### Date: "2023-02-17"
+### Author: "Qin Xia, Wenhan Li, Yufeng Hu"
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mosaic)
+library(foreach)
+library(modelr)
+library(rsample)
+library(caret)
+library(randomForest)
+```
+
+### Saratoga house prices
+
+lm_medium baseline RMSE:
+```{r echo=FALSE}
+data(SaratogaHouses)
+saratoga_split <- initial_split(SaratogaHouses, prop = 0.8)
+saratoga_train <- training(saratoga_split)
+saratoga_test <- testing(saratoga_split)
+
+# LM section
+# baseline medium model with 11 main effects
+lm_medium = lm(
+  price ~ lotSize + age + livingArea + pctCollege + bedrooms +
+    fireplaces + bathrooms + rooms + heating + fuel + centralAir,
+  data = saratoga_train
+)
+rmse(lm_medium, saratoga_test)
+```
+
+
+Best LM model RMSE:
+```{r echo=FALSE}
+# Set up k-fold CV
+dep_var <- "price"
+ind_vars <- colnames(SaratogaHouses)
+ind_vars <- ind_vars[-1]
+ctrl <- trainControl(method = "cv", number = 20)
+
+# Initialize variables
+best_rmse <- Inf
+best_model <- NULL
+
+# Loop over k-fold CV LMs, adding a variable each time to the k-fold model
+for (i in 1:length(ind_vars)) {
+  formula <-
+    as.formula(paste0(dep_var, " ~ ", paste(ind_vars[1:i], collapse = " + ")))
+  
+  model <-
+    train(formula,
+          data = saratoga_train,
+          method = "lm",
+          trControl = ctrl)
+  cv_rmse <- model$results$RMSE
+  
+  # Update model with lowest RMSE
+  if (cv_rmse < best_rmse) {
+    best_rmse <- cv_rmse
+    best_model <- model
+  }
+}
+
+interactions <- expand.grid(ind_vars, ind_vars)
+interactions <-
+  interactions[interactions$Var1 != interactions$Var2,]
+interaction_terms <-
+  apply(interactions, 1, function(x)
+    paste(x, collapse = "*"))
+interaction_terms <- paste(interaction_terms, collapse = " + ")
+
+# Add interaction variables to best_model to see if it improves RMSE. Manual backwards selection from 210 interaction variables
+updated_model <-
+  train(
+    price ~ lotSize + age + landValue + livingArea + pctCollege + bedrooms + fireplaces + bathrooms + rooms + heating + fuel + sewer + waterfront + newConstruction + centralAir + age * lotSize + pctCollege * landValue + lotSize * livingArea + fireplaces * livingArea + heating * livingArea + fuel * livingArea + sewer * livingArea + age * pctCollege + fireplaces * pctCollege + sewer * pctCollege + newConstruction * pctCollege + lotSize * bedrooms + heating * bedrooms + rooms * fireplaces + heating * fireplaces + fuel * fireplaces + newConstruction * fireplaces + sewer * bathrooms,
+    data = saratoga_train,
+    method = "lm",
+    trControl = ctrl
+  )
+rmse(updated_model, saratoga_test)
+```
+
+
+KNN output with optimal K:
+```{r echo=FALSE}
+# KNN Section
+# Create standardized data
+saratoga_s_train <- saratoga_train %>%
+  mutate(
+    price = scale(price),
+    lotSize = scale(lotSize),
+    age = scale(age),
+    landValue = scale(landValue),
+    livingArea = scale(livingArea),
+    pctCollege = scale(pctCollege)
+  )
+saratoga_s_test <- saratoga_test %>%
+  mutate(
+    price = scale(price),
+    lotSize = scale(lotSize),
+    age = scale(age),
+    landValue = scale(landValue),
+    livingArea = scale(livingArea),
+    pctCollege = scale(pctCollege)
+  )
+
+# KNN with standardized data
+knn_s_prices <-
+  train(
+    price ~ .,
+    method     = "knn",
+    tuneGrid   = expand.grid(k = 1:50),
+    trControl  = ctrl,
+    data = saratoga_s_train
+  )
+knn_s_results <- knn_s_prices[["results"]] %>%
+  arrange(desc(-RMSE))
+
+# Print the k value with the lowest RMSE
+head(knn_s_results, 1)
+```
+
+We find that linear model does better at achieving lower out-of-sample mean-squared error. The KNN model provides a poorer fit to the data. The true relationship between price and those variables we choose is closer to linear.  First, we set up 20 folds and use cross validation method. And we loop over k-fold cross validation linear model to choose the best model (without any interactions) with lowest RMSE. Then adding interaction variables to best model to see if it improves RMSE. When choose KNN model, we decide to use all variable in all models, and we set the k value of the KNN model from 1 to 50. Because after repeated testing, the optimal k value never exceeds 10 Comparing standardized KNN model’s and linear model for their RMSE. We find that linear model performs better.  In the optimal linear model that we chose, there are several variables are very significant.  They are age, livingarea, bedroom, bathroom, rooms, fueloil, waterfront, newconstruction and centralair. And the effect of livingarea measured by the linear model is quite small. Age has a significant negative effect on housing prices. The influence of house age on house value is mainly reflected in the value growth space, and the old house will gradually face the problem of construction depreciation. There is a negative correlation between the number of bedrooms and house prices. Because more bedrooms mean less square footage per room, given the same size. Most people would not like a house with lots of small rooms. There is a positive correlation between the number of bathrooms and house prices, because bathrooms are relatively small, and most houses do not have more than three bathrooms. The new construction house may take time for further development. And there may be potential problems. So the house price is going to be lower than other houses. Waterfront houses are going to cost a lot more than the average house.
+
+
+
+### Classification and restrospective sampling
+```{r echo=FALSE}
+german_credit <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H2/german_credit.csv")
+
+#Bar plot of default probability by credit history
+default_bar <- german_credit %>%
+  group_by(history) %>%
+  summarize(default_prob = sum(Default, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = history, y = default_prob)) +
+  geom_col() + 
+  labs(title = "Default probability based on credit history", y = "Default probability", x = "Credit history")
+default_bar
+
+glm_default = glm(
+  formula = Default ~ duration + amount + installment + age + history + purpose + foreign,
+  data = german_credit,
+  family = "binomial"
+)
+summary(glm_default)
+```
+
+From the regression summary, we see that credit history has a negative correlation with the prediction of whether someone will default, which is contradicts the facts, making this model not suitable for screening prospective borrowers to classify them into "high" versus "low" probability of default. This is probably caused by the fact that the data is substantially oversampled of defaults, relative to a random sample of loans in the bank's overall portfolio, as a result of the data collection design. As such, we would suggest that the bank adopts a random sampling data collection design to more accurately portray the true proportion of each credit history level when conducting regression analysis.
+
+
+### Children and hotel reservations
+
+#### Model building
+Baseline 1 RMSE, training confusion matrix, and testing confusion matrix.
+```{r echo=FALSE}
+# Setting up data
+hotel <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H2/hotels_dev.csv")
+hotel_split <- initial_split(hotel, prop = 0.8)
+hotel_train <- training(hotel_split)
+hotel_test <- testing(hotel_split)
+
+# Baseline model 1
+bline1 <-
+  lm(children ~ market_segment + adults + customer_type + is_repeated_guest,
+     data = hotel_train)
+rmse(bline1, hotel_test)
+
+phat_train_b1 <- predict(bline1, hotel_train)
+yhat_train_b1 <- ifelse(phat_train_b1 >= 0.5, 1, 0)
+confusion_in_bl1 <-
+  table(y = hotel_train$children, yhat_bl1_train = yhat_train_b1)
+confusion_in_bl1
+
+phat_test_b1 <- predict(bline1, hotel_test)
+yhat_test_b1 <- ifelse(phat_test_b1 >= 0.5, 1, 0)
+confusion_out_bl1 <-
+  table(y = hotel_test$children, yhat_bl1_test = yhat_test_b1)
+confusion_out_bl1
+```
+
+Baseline 2 RMSE, training confusion matrix and accuracy, and testing confusion matrix and accuracy.
+```{r echo=FALSE}
+# Baseline model 2
+bline2 <- lm(children ~ . - arrival_date, data = hotel_train)
+rmse(bline2, hotel_test)
+
+phat_train_b2 <- predict(bline2, hotel_train)
+yhat_train_b2 <- ifelse(phat_train_b2 >= 0.5, 1, 0)
+confusion_in_bl2 <-
+  table(y = hotel_train$children, yhat_bl2_train = yhat_train_b2)
+confusion_in_bl2
+sum(diag(confusion_in_bl2) / sum(confusion_in_bl2))
+
+phat_test_b2 <- predict(bline2, hotel_test)
+yhat_test_b2 <- ifelse(phat_test_b2 >= 0.5, 1, 0)
+confusion_out_bl2 <-
+  table(y = hotel_test$children, yhat_bl2_test = yhat_test_b2)
+confusion_out_bl2
+sum(diag(confusion_out_bl2) / sum(confusion_out_bl2))
+```
+
+Own lm RMSE, testing confusion matrix, and testing accuracy.
+```{r echo=FALSE}
+# Model 3, improved
+lm3 <- lm(
+  children ~ . - arrival_date - days_in_waiting_list -
+    required_car_parking_spaces + total_of_special_requests:adults + adults:reserved_room_type + adults:booking_changes + assigned_room_type:adults,
+  data = hotel_train
+)
+rmse (lm3, hotel_test)
+
+phat_test_lm3 <- predict(lm3, hotel_test)
+yhat_test_lm3 <- ifelse(phat_test_lm3 >= 0.5, 1, 0)
+confusion_out_lm3 <-
+  table(y = hotel_test$children, yhat_3 = yhat_test_lm3)
+confusion_out_lm3
+sum(diag(confusion_out_lm3) / sum(confusion_out_lm3))
+```
+
+The base line 1 model has an out-of-sample accuracy of 0.9243333, as it predicted all the bookings in the test set to be without children. The high value doesn’t justify for the accuracy for the model as this was the original proportion of no-children-bookings. This can be considered as a null model performance on test set.
+
+
+The second base line model has an out-of-sample accuracy of 0.9375556, it correctly predicted 249 out of 432 bookings that are with kids, and falsely predicted 130 out of 8189 no-kid bookings to be with kids. There’s a 1.014 relative improvement for the second base line model.
+
+
+We hand-picked various features and interactions and eventually decided the above model as our final linear model, which yields by far the lowest rmse. The confusion matrix showed a 0.94 accuracy for out-of-sample prediction, which beat the second base line model by an absolute improvement of around 0.002. This is acceptable considering the null model performance.
+
+
+
+
+#### Model Validation: step 1
+```{r echo=FALSE}
+hotel_val <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H2/hotels_val.csv")
+
+# Validate model
+lm_val <- lm(
+  children ~ . - arrival_date - days_in_waiting_list -
+    required_car_parking_spaces + total_of_special_requests:adults + adults:reserved_room_type + adults:booking_changes + assigned_room_type:adults,
+  data = hotel_val
+)
+
+phat_test_lm_val = predict(lm_val, hotel_val, type = 'response')
+thresh_grid = seq(0.95, 0.05, by = -0.005)
+roc_curve_val = foreach(thresh = thresh_grid, .combine = 'rbind') %do% {
+  yhat_test_linear_val = ifelse(phat_test_lm_val >= thresh, 1, 0)
+  # FPR, TPR for linear model
+  confusion_out_linear = table(y = hotel_val$children, yhat = yhat_test_linear_val)
+  out_lin = data.frame(
+    model = "linear",
+    TPR = confusion_out_linear[2, 2] / sum(hotel_val$children ==
+                                             1),
+    FPR = confusion_out_linear[1, 2] / sum(hotel_val$children ==
+                                             0)
+  )
+  
+  rbind(out_lin)
+} %>% as.data.frame()
+ggplot(roc_curve_val) +
+  geom_line(aes(x = FPR, y = TPR, color = model)) +
+  labs(title = "ROC: validation model") +
+  theme_bw(base_size = 10)
+```
+
+#### Modeling validation: step 2
+```{r echo=FALSE}
+# Set up 20-fold cross-validation
+df <- data.frame(matrix(ncol = 3, nrow = 0))
+
+hotel_val <- hotel_val %>%
+  mutate(arrival_date = NULL)
+
+folds <-
+  createFolds(
+    hotel_val$children,
+    k = 20,
+    list = TRUE,
+    returnTrain = TRUE
+  )
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  train_data <- hotel_val[folds[[i]],]
+  test_data <- hotel_val[-folds[[i]],]
+  
+  # Fit linear model using training data
+  lm_fit <-
+    lm(
+      children ~ . - days_in_waiting_list - required_car_parking_spaces + total_of_special_requests:adults + adults:reserved_room_type + adults:booking_changes + assigned_room_type:adults,
+      data = train_data
+    )
+  
+  # Make predictions on testing data
+  predicted <- predict(lm_fit, newdata = test_data)
+  
+  binary_predicted <- ifelse(predicted >= 0.5, 1, 0)
+  
+  # Make output table of values
+  confusion_out <-
+    table(y = test_data$children, yhat = binary_predicted)
+  
+  accuracy <- sum(diag(confusion_out) / sum(confusion_out))
+  
+  new_row <-
+    c((confusion_out[1, 2] + confusion_out[2, 2]) / sum(confusion_out),
+      (confusion_out[2, 1] + confusion_out[2, 2]) / sum(confusion_out),
+      accuracy
+    )
+  
+  df <- rbind(df, new_row)
+  colnames(df) <-
+    c("predicted probability", "observed probability", "accuracy")
+}
+
+df
+```
+
+The matrix summed up our validation results, with the first column showing the predicted probability in each fold. The total predicted number of bookings with children will be the product of this probability and the number of observations in the fold. The second row is the actual(observed) probability of bookings with children, since the number of observations within each fold is the same for predicted and observed, we can make direct comparison. In general, as are shown in the third column, our best model from part 1 is performing at these accuracy levels. The mean accuracy is at 0.9346. Due to the slight margin of outperformance and the change of data, it is reasonable that the advantage of our best model can be insignificant now in comparison with the second base line, which requires further examination. Nevertheless, there is still visible improvement from the null model.
