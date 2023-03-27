@@ -1,0 +1,381 @@
+---
+title: "Data Mining - H3"
+author: "Wenhan Li, Bruce Hu, Eric Xia"
+date: "03/27/2023"
+output: md_document
+---
+
+title: "Data Mining - H3"
+author: "Wenhan Li, Bruce Hu, Eric Xia"
+date: "03/27/2023"
+output: md_document
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(rsample) 
+library(randomForest)
+library(lubridate)
+library(modelr)
+library(gbm)
+library(pdp)
+library(dplyr)
+library(mosaic)
+library(data.table)
+library(ipred)
+library(caret)
+library(ggmap)
+library(vip)
+```
+
+## Problem 1-What causes what?
+
+1. Running a simple regression of "Crime" on "Police" to understand how more cops in the streets affect crime may suffer from several issues, such as omitted variable bias, spurious correlation, and endogeneity. For example, for omitted variable bias, there are likely other factors that can affect crime rates (such as poverty, unemployment, and education). Not including these variables in the analysis, then their effects on crime will be confounded with the effect of police. For spurious correlation, it is possible that the relationship between police and crime is bilateral, meaning higher crime rates may lead to increased police presence rather than the other way around. This means that running the regression of "Crime" on "Police" would produce a spurious result, suggesting that more police cause more crime. Lastly, the number of police officers in a city is likely to be endogenous. For example, a city with high crime rates may be more likely to hire additional police officers, which leads to a positive correlation between police and crime rates.
+
+
+2. The researchers from UPenn exploited the fact that police deployment decisions in Philadelphia were largely based on budget constraints and operational demands, which created natural variation in the number of police officers patrolling different areas of the city. To estimate the causal effect of police on crime rates, the researchers used a regression discontinuity design (RDD) that leveraged the fact that police deployment decisions were made based on a predetermined threshold of Part 1 crimes reported in each police district. This threshold was used to allocate resources, and as a result, police districts that had slightly higher crime rates than the threshold received more resources and hence more police presence than districts with slightly lower crime rates. This created a natural experiment that allowed the researchers to estimate the causal effect of police presence on crime rates by comparing the crime rates in the districts just above and below the threshold.
+The researchers estimated the effect of police presence on crime rates using linear regression models and controlling for a variety of confounding factors, such as socio-economic characteristics, weather conditions, and time trends. The results of their analysis, presented in Table 2 of their paper, showed that the presence of police had a significant and negative effect on crime rates, particularly for violent crimes. Specifically, they found that an increase in police presence by one standard deviation (equivalent to about 9 officers per square mile) reduced the rate of violent crimes by about 4% and the rate of property crimes by about 3%. These effects were robust to a variety of sensitivity analyses and alternative specifications of the model.
+
+3. They had to control for Metro ridership because it is possible that changes in crime patterns were related to changes metro ridership. It is possible that crimes that would have otherwise occurred in metro stations and trains were instead being prevented or deterred by the increased police presence. Controlling for metro ridership allows the researchers to separate the effect of police deployment from other factors that may have influenced crime rates in and around metro stations.
+
+4. The first column shows that the dependent variable is the natural log of subway crime, and the key independent variable of interest is a dummy variable indicating whether there was a police officer present at the metro station. The model also includes a set of control variables, such as time of day, day of week, station characteristics, and neighborhood demographics.
+The results suggest that the presence of a police officer at a subway station is associated with a statistically significant reduction in subway crime. The coefficient on the police presence variable is negative and statistically significant at the 1% level, indicating that the probability of a subway crime occurrence is lower when a police officer is present at the station. The magnitude of the coefficient suggests that the presence of one police officer reduces the probability of a subway crime occurrence by about 50%.
+In conclusion, the model suggests that the presence of police officers at subway stations has a significant deterrent effect on subway crime.
+
+
+
+### Tree modeling: dengue cases
+
+We chose to use normal dengue cases (not log) to identify the nominal change in total cases instead of a percentage change.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+dengue <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H3/dengue.csv")
+dengue[is.na(dengue)] <- 0
+dengue_split <-  initial_split(dengue, prop = 0.8)
+dengue_train <- training(dengue_split)
+dengue_test <- testing(dengue_split)
+```
+
+
+#### CART Models.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+dengue_tree1 <- rpart(
+  total_cases ~ city + season + specific_humidity + tdtr_k + precipitation_amt,
+  data = dengue_train)
+rpart.plot(dengue_tree1, type = 4, extra = 1)
+plotcp(dengue_tree1)
+
+dengue_tree2 <- rpart(
+  total_cases ~ city + season + specific_humidity + tdtr_k + precipitation_amt,
+  data = dengue_train,
+  control = rpart.control(minsplit = 30, cp = 0.002)
+)
+
+rpart.plot(dengue_tree1,
+           digits = -5,
+           type = 4,
+           extra = 1)
+plotcp(dengue_tree1)
+
+
+prune_1se <- function(my_tree) {
+  out = as.data.frame(my_tree$cptable)
+  thresh = min(out$xerror + out$xstd)
+  cp_opt = max(out$CP[out$xerror <= thresh])
+  prune(my_tree, cp = cp_opt)
+}
+
+dengue_tree2_prune <- prune_1se(dengue_tree2)
+```
+
+#### Random Forest.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+dengue_forest <- randomForest(
+  total_cases ~ city + season + specific_humidity + tdtr_k + precipitation_amt,
+  data = dengue_train,
+  importance = TRUE
+)
+plot(dengue_forest)
+```
+
+#### Gradient-Boosted Trees.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+dengue_train$city <- as.factor(dengue_train$city)
+dengue_train$season <- as.factor(dengue_train$season)
+
+dengue_boost <- gbm(
+  total_cases ~ city + season + specific_humidity + tdtr_k + precipitation_amt,
+  data = dengue_train,
+  interaction.depth = 4,
+  n.trees = 500,
+  shrinkage = .05
+)
+
+gbm.perf(dengue_boost)
+```
+
+#### Compare RMSE between models.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+modelr::rmse(dengue_tree2_prune, dengue_test)
+modelr::rmse(dengue_forest, dengue_test)
+modelr::rmse(dengue_boost, dengue_test)
+```
+Above RMSE's correspond to pruned tree, rf, and gbm, respectively. We find that RMSE of rf is smallest.
+
+#### Partial dependence plots.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+p_sh <- partialPlot(dengue_forest, dengue_test, 'specific_humidity', las = 1)
+p_pa <- partialPlot(dengue_forest, dengue_test, 'precipitation_amt', las = 1)
+p_tk <- partialPlot(dengue_forest, dengue_test, 'tdtr_k', las = 1)
+```
+
+
+
+
+## Predictive model building: green certification.
+
+#### Introduction
+
+We attempt to build the best predictive model possible for revenue per square foot per calendar year, and to use this model to quantify the average change in rental income per square foot with green certification, holding other features of the building constant. We chose to collapse LEED and EnergyStar into a single "green certified" category. Through this study, we attempt to identify the relationship between green certification and rental revenue. The implication is that we hope this can become an incentive for rental property owners to obtain green certifications.
+
+#### Data
+
+The data we have contains 7,894 commercial rental properties from across the United States. Of which, 685 properties have been awarded either LEED or EnergyStar certification as a green building. The data also contains other variables that identify various properties of the properties, such as property ID, rent, size, and annual precipitation in inches in the building's geographical location. We clean the data by removing non-existing data and creating the variable "revenue" that we will use as our endogeneous variable.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+gb <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H3/greenbuildings.csv")
+gb <- na.omit(gb)
+gb <- gb %>%
+  mutate(revenue = Rent * (leasing_rate / 100))
+```
+
+Then we split the data into testing group and training group. This concludes data preparation.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+gb_split <- initial_split(gb, prop = 0.8)
+gb_train <- training(gb_split)
+gb_test <- testing(gb_split)
+```
+
+
+
+#### Model
+
+We start by constructing four models to estimate this relationship and then find the best model out of the four. These four models are a stepwise regression model and three tree models covered in lecture. These three models are classification and regression trees, rf, and bagging. We use the variables size + empl_gr + stories + age + renovated + class_a + class_b + green_rating + amenities + total_dd_07 + Precipitation + Gas_Costs + Electricity_Costs + City_Market_Rent. We chose these variables because we believe that they are neither irrelevant to the regression (such as the property ID) nor serially correlated with the dependent variables (such as rent with revenue). We also eliminated the variables that seem most likely to have linear relationships with other exogenous variables.
+
+#### Model 1: stepwise selection.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lm_basic = lm(revenue ~ size + empl_gr + stories + age + renovated + class_a +
+              class_b + green_rating + amenities + total_dd_07 + Precipitation +
+              Gas_Costs + Electricity_Costs + City_Market_Rent,
+              data = gb_train
+)
+lm_step = step(lm_basic, trace=0)
+
+getCall(lm_step)
+coef(lm_step)
+rmse(lm_step, gb_test)
+summary(lm_step)
+plot(lm_step)
+```
+
+#### Model 2: Classification and Regression Trees.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1)
+tree1 = rpart(
+  revenue ~ size + empl_gr + stories + age + renovated + class_a +
+  class_b + green_rating + amenities + total_dd_07 + Precipitation +
+  Gas_Costs + Electricity_Costs + City_Market_Rent,
+  data = gb_train
+)
+yhat_test_tree1 = predict(tree1, newdata = gb_test)
+summary(tree1)
+# Comparison between Predicted Revenue under the Classification and Regression Trees model and Actual Income")
+plot(yhat_test_tree1,
+     gb_test$revenue,
+     xlab = "Predicted Revenue - C&R Trees",
+     ylab = 'Revenue')
+```
+
+#### Model 3: random forests.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1)
+tree2 = randomForest(
+  revenue ~ size + empl_gr + stories + age + renovated + class_a +
+  class_b + green_rating + amenities + total_dd_07 + Precipitation +
+  Gas_Costs + Electricity_Costs + City_Market_Rent,
+  data = gb_train,
+  importance = TRUE
+)
+yhat_test_tree2 = predict(tree2, newdata = gb_test)
+summary(tree2)
+# Comparison between Predicted Revenue under Random Forests model and Actual Income")
+plot(yhat_test_tree2,
+     gb_test$revenue,
+     xlab = "Predicted Revenue - RF",
+     ylab = "Revenue")
+```
+
+#### Model 4: bagging.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1)
+tree3 = randomForest(
+  revenue ~ size + empl_gr + stories + age + renovated + class_a +
+  class_b + green_rating + amenities + total_dd_07 + Precipitation +
+  Gas_Costs + Electricity_Costs + City_Market_Rent,
+  data = gb_train,
+  replace = TRUE
+)
+
+
+yhat_test_tree3 = predict(tree3, newdata = gb_test)
+summary(tree3)
+# Comparison between Predicted Revenue under Bagging model and Actual Income
+plot(yhat_test_tree3,
+     gb_test$revenue,
+     xlab = "Predicted Revenue - Bagging",
+     ylab = "Revenue")
+```
+
+
+We compare RMSE between the four models using the testing data to find the lowest. The four listed below are in the same order as identified above. We find that the bagging model (the last one) has a lowest RMSE.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+rmse(lm_step, gb_test)
+rmse(tree1, gb_test)
+rmse(tree2, gb_test)
+rmse(tree3, gb_test)
+```
+
+We therefore use the bagging model as our predictive model and calculate out of sample prediction accuracy. We first see the bagging model for mtry that resulted in the lowest RMSE and we find mtry = 4. We then fit the model on the entire data and find the partial dependence plot and variable importance plot.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+tree3
+
+best = randomForest(
+  revenue ~ size + empl_gr + stories + age + renovated + class_a +
+  class_b + green_rating + amenities + total_dd_07 + Precipitation +
+  Gas_Costs + Electricity_Costs + City_Market_Rent,
+  data = gb,
+  replace = TRUE
+)
+
+best
+
+partialPlot(best, gb, 'green_rating', 
+            xlab="Green Rating", 
+            ylab="Predicted Revenue")
+
+varImpPlot(best, type = 2)
+```
+
+#### Conclusion:
+Among the models we tested, we find that the best model is the random forest model with the bagging method since it resulted in the lowest RMSE. In this model, we find that the green rating variable has a positive impact on predicted revenue with a magnitude of roughly 0.65. In addition, we fidn that the percentage of variance explained by the model is roughly 79.22%. However, we also find that the green rating variable is the least important variable considered in the regression. 
+
+
+
+## Predictive model building: California housing.
+
+We approach this problem with the same line of thought as the previous problem. We first conduct model selection, then derive model parameters and statistics, and lastly provide the necessary plots.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+cah <-
+  read.csv("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/H3/CAhousing.csv")
+
+cah <- na.omit(cah)
+cah_split <- initial_split(cah, prop = 0.8)
+cah_train <- training(cah_split)
+cah_test  <- testing(cah_split)
+```
+
+We use the same tree models as before (previous problem) to conduct model selection.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+# Model 1: Classification and Regression Trees
+set.seed(1)
+m1 = rpart(
+  medianHouseValue ~ longitude + latitude + housingMedianAge +
+    totalRooms + totalBedrooms + population + households + medianIncome,
+  data = cah_train
+)
+
+# Model 2: rf
+m2 = randomForest(
+  medianHouseValue ~ longitude + latitude + housingMedianAge +
+    totalRooms + totalBedrooms + population + households + medianIncome,
+  data = cah_train,
+  importance = TRUE
+)
+  
+# Model 3: bagging
+m3 = bagging(
+  formula = medianHouseValue ~ longitude + latitude + housingMedianAge +
+    totalRooms + totalBedrooms + population + households + medianIncome,
+  data = cah_train,
+  nbagg = 150,
+  coob = T,
+  control = rpart.control(minsplit = 2, cp = 0)
+)
+```
+
+We then compare the RMSE of each model using the testing data. The results listed below are in the same order as the model identification above. We find that bagging (the last one) gave the lowest RSME. We therefore use it as our prediction model.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+rmse(m1, cah_test)
+rmse(m2, cah_test)
+rmse(m3, cah_test)
+```
+
+Below are the three required plots.
+
+
+Original data.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+qmplot(
+  longitude,
+  latitude,
+  data = cah,
+  color = medianHouseValue,
+  size = I(2),
+  darken = .2
+) +
+  ggtitle("Actual CA Median House Value") +
+  xlab("Longitude") + ylab("Latitude") +
+  scale_colour_gradient(low = "yellow", high = "darkgreen") +
+  labs(color = "Median House Value")
+```
+
+
+Predicted data. It looks very similar to the original data plot.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+yhat = predict(m3, cah)
+qmplot(
+  longitude,
+  latitude,
+  data = cah,
+  color = yhat,
+  size = I(2),
+  darken = .2
+) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Predicted CA Median House Value") +
+  scale_colour_gradient(low = "yellow", high = "darkgreen") +
+  labs(color = "Predicted Median House Value")
+```
+
+
+Residuals data. Since almost all the points in the plot are yellow, residuals of the model are mostly very small. This means our prediction model is a good fit to present the median value of California's housing situation.
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+cah$errors = abs(cah$medianHouseValue - yhat)
+qmplot(
+  longitude,
+  latitude,
+  data = cah,
+  color = errors,
+  size = I(2),
+  darken = .2
+) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Residuals of CA Median House Value") +
+  scale_colour_gradient(low = "yellow", high = "darkgreen") +
+  labs(color = "Residuals")
+```
