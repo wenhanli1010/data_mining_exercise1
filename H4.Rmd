@@ -1,0 +1,189 @@
+---
+title: "Data Mining - H4"
+author: "Qin Xia, Li Wenhan, Yufeng Hu"
+date: "2023-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(rsample) 
+library(randomForest)
+library(mosaic)
+library(caret)
+library(cluster)
+library(arules)
+library(arulesViz)
+```
+
+
+
+```{r Clustering and PCA, message=FALSE, warning=FALSE, echo=FALSE}
+wine <- read.csv("../H4/wine.csv")
+
+# Scale the data
+wine_scaled <- scale(wine[,1:11])
+
+# Perform PCA
+wine_pca <- prcomp(wine_scaled, center = TRUE, scale. = TRUE)
+summary(wine_pca)
+
+# Extract the first two principal components and plot them
+wine_pca_scores <- data.frame(wine_pca$x[,1:2])
+
+ggplot(wine_pca_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes(color = wine[,13])) +
+  labs(title = "PCA for Color")
+
+ggplot(wine_pca_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes(color = wine[,12])) +
+  labs(title = "PCA for quality")
+```
+
+Based on the PCA plots, we can see that the red and white wines are mostly separated along the first principal component, indicating that this component captures much of the variation in wine type. Additionally, we can see some separation between higher and lower quality wines along the second principal component, indicating that this component captures some of the variation in wine quality, although the results are not as apparent.
+
+
+```{r Clustering and PCA 2, message=FALSE, warning=FALSE, echo=FALSE}
+# Perform K-means clustering for color (2 centers)
+wine_clusters <- kmeans(wine_scaled, centers = 2)
+
+# Extract cluster assignments and combine with wine data
+wine_cluster_assignments <- data.frame(cluster = wine_clusters$cluster)
+
+wine_clustered <- cbind(wine, wine_cluster_assignments)
+
+# Average quality score for each cluster
+aggregate(wine$quality, by = list(cluster = wine_clusters$cluster), mean)
+
+# Plot K-means clustering on PCA
+ggplot(data.frame(PC1 = wine_pca$x[, 1], PC2 = wine_pca$x[, 2], cluster = as.factor(wine_clusters$cluster))) +
+  geom_point(aes(x = PC1, y = PC2, color = cluster)) +
+  labs(title = "K-means Clustering for Color")
+
+
+# Perform K-means clustering for quality (7 centers)
+unique(wine$quality)
+wine_clusters_quality <- kmeans(wine_scaled, centers = 7)
+
+# Extract cluster assignments and combine with wine data
+wine_cluster_assignments_quality <- data.frame(cluster = wine_clusters_quality$cluster)
+
+wine_clustered_quality <- cbind(wine, wine_cluster_assignments_quality)
+
+# Average quality score for each cluster
+aggregate(wine$quality, by = list(cluster = wine_clusters$cluster), mean)
+
+ggplot(data.frame(PC1 = wine_pca$x[, 1], PC2 = wine_pca$x[, 2], cluster = as.factor(wine_clusters_quality$cluster))) +
+  geom_point(aes(x = PC1, y = PC2, color = cluster)) +
+  labs(title = "K-means Clustering for Quality")
+```
+
+Based on the K-Means Clustering plots, we can see that the red and white wines are mostly separated along the first principal component, indicating that this component captures much of the variation in wine type. Additionally, we can see that K-Means Clustering better separated the qualities of wine into seven categories. However, the clusters do not indicate the quality associated with each cluster and therefore is not as practically significant as the plot from the PCA analysis.
+
+
+## Market Segmentation
+
+```{r Market segmentation, message=FALSE, warning=FALSE, echo=FALSE}
+social_marketing <- read.csv("../H4/social_marketing.csv")
+
+# remove the anonymous user ID and "uncategorized" category
+social_marketing <- social_marketing[,-c(1,36)]
+
+# normalize the interest columns
+social_marketing[,1:35] <- social_marketing[,1:35] / rowSums(social_marketing[,1:35])
+
+# remove the "uncategorized" category
+social_marketing <- social_marketing[,-35]
+```
+
+Now that the data is preprocessed, we can start exploring it to identify interesting market segments. One approach is to use principal component analysis (PCA) to reduce the dimensionality of the data and identify clusters of users with similar interests.
+
+```{r Market segmentation 2, message=FALSE, warning=FALSE, echo=FALSE}
+# run PCA on the normalized data
+set.seed(123)
+pca <- prcomp(social_marketing, scale. = TRUE)
+
+# plot the proportion of variance explained by each PC
+plot(pca)
+summary(pca)
+```
+
+The plot and the table show that the first five principal components (PCs) explain a substantial proportion of the variance in the data, with PC1 explaining over 8.5%, PC2 explaining over 7.7%, PC3 explaining over 7.0%, PC4 explaining over 6.3%, and PC5 explaining over 5.8%. These PCs are selected because they explain at least 5% of the total variance in the data, as determined by common PC retainment criterion. Let's take a closer look at these five PCs:
+
+```{r Market segmentation 3, message=FALSE, warning=FALSE, echo=FALSE}
+# extract the loadings (correlations between interests and PCs)
+loadings <- pca$rotation[,1:5]
+
+# show the top 10 interests associated with each PC
+top10 <- apply(loadings, 2, function(x) names(sort(x, decreasing = TRUE)[1:10]))
+top10
+```
+
+The output shows the top 10 interests associated with each of the first five PCs. We can interpret these PCs as representing five broad themes or market segments:
+
+PC1: News and Politics - PC1 explains the most variance in the data and is strongly associated with interests related to news and politics. This suggests that a large proportion of the variation in the data can be explained by users' interest in current events and political topics.
+
+PC2: Health and Fitness - PC2 is strongly associated with interests related to health and fitness, such as exercise, diet, and wellness. This suggests that users who are interested in health and fitness tend to share similar content on social media.
+
+PC3: Technology and Gaming - PC3 is strongly associated with interests related to technology and gaming, such as video games, computers, and gadgets. This suggests that users who are interested in technology and gaming tend to share similar content on social media.
+
+PC4: Family and Lifestyle - PC4 is strongly associated with interests related to family and lifestyle, such as parenting, relationships, and home decor. This suggests that users who are interested in family and lifestyle topics tend to share similar content on social media.
+
+PC5: Business and Finance - PC5 is strongly associated with interests related to business and finance, such as entrepreneurship, investing, and economics. This suggests that users who are interested in business and finance tend to share similar content on social media.
+
+These market segments suggest different positioning strategies for NutrientH20, depending on their branding goals. For example, if NutrientH20 wants to appeal to users interested in news and politics, they could emphasize the health benefits of their drink for people on the go who need a quick and convenient source of nutrition. If they want to appeal to users interested in entertainment and pop culture, they could emphasize the drink's refreshing taste and use social media influencers to promote it. If they want to appeal to users interested in health and fitness, they could emphasize the drink's low sugar content and use fitness bloggers and athletes to promote it.
+
+
+## Association rules for grocery purchases
+```{r Association rules for grocery purchases, message=FALSE, warning=FALSE, echo=FALSE}
+groceries <- read.transactions("groceries.txt", sep = ",")
+summary(groceries)
+itemFrequencyPlot(groceries, topN = 20)
+```
+
+The summary of the groceries.txt file above shows that there are 9835 baskets (shopping lists) that encompass 169 items, the most frequent of which are whole milk, other vegetables, rolls/buns, soda, and yogurt. We see that the distribution of baskets decrease as basket lengths increase, up to a basket of 32 items. There is a mean number of items per basket at 4.409 and a median of 3.
+
+In addition, the plot above shows a distribution of the relative item frequency for the twenty most common items in baskets. We see that these items are generally common grocery items such as food and drinks. These two pieces of information indicates that among the rules to be discovered, the ones with the highest confidence, support, and lift will most likely have common grocery items.
+
+```{r Association rules for grocery purchases2, message=FALSE, warning=FALSE, echo=FALSE}
+rules <- apriori(groceries, parameter = list(support = 0.005, confidence = 0.1))
+summary(rules)
+```
+
+By choosing the thresholds for support = 0.005 and confidence = 0.1, we generate a set of 1582 rules with the highest order of 4. Our summary of quality measures show reasonable values given the dataset. For example, we see a max support of 0.256, max confidence of 0.7, max coverage of 1, max lift of 4.64, and a max count of 2513. Median and mean values also seem reasonable.
+
+```{r Association rules for grocery purchases3, message=FALSE, warning=FALSE, echo=FALSE}
+plot(rules)
+plot(rules, method='two-key plot')
+```
+
+We plot the rules both in (support, confidence) space and in a "two key" plot, coloring by the size (order) of the item set. We see that most rules hover between support = 0.001 and 0.002 while confidence decreases in density as it increases. In addition, lift appears to be higher at lower support and is scattered evenly across confidence. The two key plot shows that in general, as order increases, confidence decreases but support increases.
+
+```{r Association rules for grocery purchases4, message=FALSE, warning=FALSE, echo=FALSE}
+inspect(head(sort(rules, by = "support"), n = 10))
+inspect(head(sort(rules, by = "confidence"), n = 10))
+inspect(head(sort(rules, by = "lift"), n = 10))
+```
+
+The three tables above show the top ten rules sorted by support, confidence, and lift, respectively. These tables confirm our previous hunch that the top performing rules will generally contain common grocery items such as food and drinks.
+
+```{r Association rules for grocery purchases5, message=FALSE, warning=FALSE, echo=FALSE}
+inspect(subset(rules, lift > 3))
+```
+
+While deciding our threshold for lift, we kept in mind that while there is no specific number of rules that is considered the "proper amount" as it depends on the specific dataset and the goals of the analysis, generating too many rules may lead to overfitting and reduced interpretability, while generating too few rules may not capture all the interesting patterns in the data. Since the ultimate goal is to identify a set of high-quality rules that provide useful insights for the specific problem at hand, we picked support = 0.005 and confidence = 0.1 in order to generate about 1.5k rules from over 9k shopping lists. This allows us to then narrow down to 85 rules by restricting lift > 3. We believe that these 85 rules identity practical associations that can be used to improve desired shopping metrics. Below are a few of the rules that we found that made the most sense:
+
+{whole milk, yogurt}	=>	{butter}
+
+{other vegetables, root vegetables}	=>	{beef}
+
+{ham}	=>	{white bread}
+
+{citrus fruit, pip fruit}	=>	{tropical fruit}
+	
+{berries}	=>	{whipped/sour cream}
+
+These rules were all selected from the subset of 85 rules with lift > 3. We see that items in the same list are often associated by type, such as dairy or fruits, or by meals, such as vegetables and beef. Interestingly, we noticed that despite nine out of the top ten rules in terms of confidence resulted in the rhs of {whole milk}, none of the 85 rules with lift > 3 had this result, although {whole milk} does appear very frequently in the lhs.
