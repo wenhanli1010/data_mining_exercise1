@@ -1,0 +1,434 @@
+---
+title: "Final Project"
+author: "Qin Xia, Wenhan Li, Yufeng Hu"
+date: "2023-04-18"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(readxl)
+library(ggplot2)
+library(mice)
+library(corrplot)
+library(nortest)
+library(car)
+library(leaps)
+library(party)
+library(dplyr)
+library(randomForest)
+library(e1071)
+library(Metrics)
+library(rpart)
+
+setwd("C:/Users/cp291/OneDrive/桌面/UT Austin/MA Econ/Data Mining/Final")
+data("diamonds")
+write.csv(diamonds, "diamonds.csv")
+```
+
+### Abstract
+
+We investigate the use of the diamonds dataset in R for building regression models to predict diamond prices. The initial analysis involves a simple linear regression model, which is then improved upon and used as the basis for various machine learning models, including random forests, decision trees, and supported vector machine for price prediction, in which price is changed to a factor variable. The performance of each model was then evaluated to see its accuracy. The results demonstrate the efficacy of machine learning models in predicting diamond prices. Overall, this study highlights the potential of machine learning for improving diamond price predictions, which could have significant implications for the diamond industry.
+
+
+### I. Introduction
+
+As an iconic luxury good, diamonds have always been an important product in the jewelry market. Historically, diamond prices have been stable or slightly up, mainly because supply and demand are relatively balanced. However, the COVID-19 pandemic has had a dramatic impact on the global economy, leading to a decline of around 20% in diamond sales in 2020. But because the diamond supply chain is tightly controlled, prices have not fallen sharply. With the development of technology, the quality of synthetic diamonds is improving and the cost is decreasing, which could have an impact on natural diamond prices. In an article published on January 2, Kinisky pegged the global market for cultivated diamond jewelry at about $12 billion in 2022, up 38% from 2021, although natural diamond prices declined by about 20%. In addition, cultivated diamond jewelry sales accounted for more than 10 percent of the global total for the first time.
+
+We are motivated to identify the best prediction model for diamond prices for two reasons. On one hand, knowing the trend of diamond prices and future trends is a good way for diamond investors to assess the value and potential earnings of diamonds. Consumers can also better grasp the diamond market situation and make reasonable choices of diamond quality and price. On the other hand, our team members are approaching the age of marriage, so it is very important for us to analyze and understand the prices of diamonds before when we potentially choose rings in the future. Just a bit of personal motivation. So in this study, we analyzed recent global diamond price data from the "diamonds" dataset, which includes data from GIA, EGL and other major diamond producers, and processed the data using multiple linear regression models to identify the best model for prediction. Our goal is to build a regression model to try to figure out the factors that affect the price of diamonds and determine the best predictive model for predicting diamond prices using selected factors. The rest of the paper breaks down into three sections: we will first discuss our data and methodology, then outline the results from our regressions, and lastly extrapolate our results and highlight this paper's shortcomings. An appendix is included at the end of the report, which holds figures and tables discussed but not shown in the report. Figures and tables in the appendix are labeled as "A#".
+
+
+### II. Methods
+
+We started by cleaning the data and conduct exploratory data analysis. Then we construct a model using all available explanatory variables and we went from there to improve our predictive variables selection. We further utilize the residuals of the linear fit of the whole sample to determine necessary feature engineering.
+
+The next step is to build the best prediction models using different methods. We divided our outcome variable, namely diamond prices, into 6 categories based off the distribution of prices chose five prediction methods: Naïve Bayes, Decision Tree, Conditional Inference Tree, Random Forest, and Support Vector Machines to yield the best prediction model. Our decision over the five methods will be based on the performance of these models with confusion matrices for accuracy comparison. Since our outcome variable is a factor variable and therefore not continuous, RMSE analysis would not be applicable.
+
+#### II.i Data Description
+
+The data diamonds come with package ggplot2 in R. The dataset contains information on the price and quality of approximately 54,000 diamonds. Each observation is made up of ten variables as shown in Table A1. We set the variable price as the outcome variable and the other nine as independent variables.
+
+#### II.ii Data Cleaning
+
+Since the diamonds dataset is a built-in dataset in ggplot2, we directly load the diamond dataset using the data() function. In order to make the data clean and ready for analysis, we first identify if the dataset has any missing values. We do so by performing missing value processing using the mice package and see that there is no missing value in this dataset. We then check for repeated values in order to establish whether to duplicate the index and remove any duplicate rows. Lastly, we identify and remove initial outliers from the data.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+head(diamonds)
+tail(diamonds)
+summary(diamonds)
+
+md.pattern(diamonds)
+
+m <- duplicated(diamonds)
+data <- diamonds[!m, ]
+
+diamonds$price <- as.numeric(as.character(diamonds$price))
+boxplot(diamonds$price)
+
+diamonds[which(diamonds$price %in% boxplot.stats(diamonds$price)$out), ]
+
+diamonds1 <-
+  diamonds[-which(diamonds$price %in% boxplot.stats(diamonds$price)$out), ]
+write.csv(diamonds1, "diamonds1.csv")
+```
+
+#### II.iii Explorative Data Analysis
+
+We begin by examining the distribution of both diamond price and diamond weight. As we see from Table A2, the lowest diamond price is $326, the highest is $11,886, and the mean is $3,160. In Figure A1, we can see from the histogram of diamond prices that the largest number of diamond prices are between $0 and $2000. Since the mean is greater than the median and the graph is positively skewed, there is potential positive outliers in the data. We can also see from the density curve (red) that number of diamond prices peaks at about $1000, and faults occur at about $2000, $4000 and $8000. By comparing the normal distribution curve (blue) with the density curve, we can see that when the price of diamond is less than $8000, the two curves are very different; when the price of diamond is greater than $8000, that difference appears smaller.
+
+As we see from Table A3, the lowest diamond weight is 0.2 carats, the highest is 3.65 carats, and the mean is 0.7237 carats. In Figure A2, we can see from the histogram of diamond prices that the number of diamonds by weight is heavily concentrated on the lower end. Since the mean is greater than the median and the graph is positively skewed, there is potnetial positive outliers in the data. In addition, we notice that while the normal distribution curve only has one peak, the density curve has two, one at the lowest weight bracket and one just above one carat. Without this second peak, the distribution of weights appears to follow an exponential decay model. We believe that further analysis can be conducted here and elaborates on this in the Conclusion.
+
+One interesting thing we noticed about the data was that when we analyzed the distribution of the cut variable, we saw that the price distribution when cut = Very Good is basically the same as that when cut = Premium (Figure A3). We used a series of tests to verify whether this variable has a significant impact on the price. The sample data is first divided into two groups: cut = Very Good for one group and cut = Premium for the other.
+
+We first ran an Anderson-Darling test to see whether the prices of diamonds follow the normal distribution. Suppose:
+
+\begin{center}
+H0: The price of diamond is subject to normal distribution.
+
+H1: Diamond prices do not obey normal distribution.
+\end{center}
+
+As shown in Table A4, we find that P < 0.001, so we reject the null hypothesis and say that the distribution of diamond prices do not obey the normal distribution.
+
+Since diamond prices do not obey normal distribution, we used the Wilcoxon rank sum test to see whether there is a significant difference between cut = Very Good price and cut = Premium price. Suppose:
+
+\begin{center}
+H0: Very Good at the same price as Premium.
+
+H1: Very Good is not the same price as Premium.
+\end{center}
+
+As shown in Table A5, we find that P < 0.001, so we reject the null hypothesis and say that the price of Very Good is significantly different from that of Premium. As such, we consider the cut variable when building the regression model.
+
+
+### III. Results
+
+We begin by building a linear regression model using all nine explanatory variables. As shown by Table A6, our initial linear model showed an adjusted R-squared of 0.9179. We use this model as a basis and modify it to see if we can improve the fit.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+fit <- lm(price ~ ., data = diamonds1)
+```
+
+As such, we proceed to create an influence plot and find that there are outliers in the data. We then proceed to identify the specific outliers and remove them from our data. After which we proceed to identify the variance inflation factor for each dependent variable in order to check for multicollinearity. As shown in Table A7, the variables x, y, and z have a statistic significantly over five, meaning that they potentially exhibit multicollinearity. We keep the carat variable because we believe that it is significant to the model since it has the highest correlation with the price variable (Table A8). Since multicollinearity exists in the model, variable screening is required. We remove the variables x, y, and z from the model and checks the variance inflation factor once more. The results in Figure A5 show that R squared can reach 92% after x,y, and z are deleted.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+fit1 <- lm(price ~ . - x - y - z, data = diamonds1)
+```
+
+After the deletion of variables, the model was tested, and the results showed that the remaining variables were significant, and the adjusted R square rose to 0.9188 (Table A9). In addition, we see that multicollinearity no longer exists in the data (Table A10). As such, we proceed to analyze the residual of the updated model. 
+
+
+Figure 1. Residual plots of linear regression without x, y, and z.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(fit1)
+```
+
+Figure 1 above shows various residual analysis plots of the model. Through the "residual vs fitted" graph, it is found that there is a curved relationship between the residual value and the fitting value, so the regression model does not meet the linear assumption. Through the "Normal Q-Q graph", we see that the points on the graph arguably fall on the identified line, so the regression model satisfies normality. Through the "Scale-Location" graph, wee see that the graph shows non-horizontal trend, so the regression model does not satisfy homoscedasticity. Then, the correlation between variables is judged by the scatter plot and kernel density estimation curve of the variables and the price of diamonds. We then conduct variable transformation to improve the model effect.
+
+
+Figure 2. Kernel smoothing graphs of independent variables against diamond price.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+attach(diamonds1)
+par(mfrow = c(2, 3))
+plot(carat, price)
+lines(ksmooth(carat, price, bandwidth = 1, kernel = "normal"), col = "red")
+plot(depth, price)
+lines(ksmooth(depth, price, bandwidth = 1, kernel = "normal"), col = "red")
+plot(table, price)
+lines(ksmooth(table, price, bandwidth = 1, kernel = "normal"), col = "red")
+plot(x, price)
+lines(ksmooth(x, price, bandwidth = 1, kernel = "normal"), col = "red")
+plot(y, price)
+lines(ksmooth(y, price, bandwidth = 1, kernel = "normal"), col = "red")
+plot(z, price)
+lines(ksmooth(z, price, bandwidth = 1, kernel = "normal"), col = "red")
+dev.off()
+```
+
+As shown in Figure 2 above, the explanatory variables depth and table may be related to a quadratic term. The regression model is then rebuilt and the terms depth^2 and table^2 are added onto the basis of the original model.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+fit2 <- lm(price ~ . + I(depth ^ 2) + I(table ^ 2), data = diamonds1)
+```
+
+As we see from the results in Table A11, the adjusted R square of the model increases to 0.9202, which significantly improves the goodness of fit. Combining the regression coefficient of the model with the scatter plot, we find that the main factors affecting the price are diamond weight, cut quality, color, clarity and percentage of total depth. The more weight, the higher the price, which increases exponentially. The better the quality of the cut, the higher the price. The higher the color grade, the higher the price. The higher the clarity, the higher the price. The higher the percentage of total depth, the higher the price. The table variable, which is the width of the top of the diamond relative to the widest point, does not have a significant effect on the price. We select this regression as the one we will use for our predictive models.
+
+We then identified the different price bracket factors that we will use for prediction. We use price bracket factors instead of nominal prices because it will give us a more practical prediction result. Nominal price predictions cannot practically identify prediction accuracy since and deviation from the original value is considered a false prediction. However, if we say that the prediction falls within the same price bracket as the true value, then we can practically identify the prediction accuracy. Figure A6 shows that the price is divided into 6 grades: A(0-2000), B(2000-4000), C(4000-6000), D(6000-8000) , E(8000-10000), F(10000-12000).
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+diamonds1$pred <- fit2$fitted.values
+write.csv(diamonds1, file = "predictions.csv", row.names = F)
+
+diamonds2 = diamonds1
+diamonds2$price[price >= 10000] <- "F"
+diamonds2$price[price < 10000 & price >= 8000] <- "E"
+diamonds2$price[price < 8000 & price >= 6000] <- "D"
+diamonds2$price[price < 6000 & price >= 4000] <- "C"
+diamonds2$price[price < 4000 & price >= 2000] <- "B"
+diamonds2$price[price < 2000] <- "A"
+diamonds2$price <-
+  factor(diamonds2$price, levels = c("A", "B", "C", "D", "E", "F"))
+
+set.seed(123)
+
+train <- sample(nrow(diamonds2), 0.8 * nrow(diamonds2))
+diamonds2.train <- diamonds2[train, ]
+diamonds2.validate <- diamonds2[-train, ]
+```
+
+We now fit the five previous mentioned prediction models. The results are shown below. All models use the same seed so the performance should be repeatable. In each of the confusion matrix results shown in below, "Actual" is the real value, "Predicted" is the predicted value, and the samples on the diagonal are those with accurate prediction.
+
+
+Table 1. Naive Bayes prediction results.
+
+```{r nb, message=FALSE, warning=FALSE, echo=FALSE}
+set.seed(123)
+fit.nb <- naiveBayes(price ~ . + I(depth ^ 2) + I(table ^ 2), data = diamonds2.train)
+
+nb.pred <- predict(fit.nb, newdata = diamonds2.validate)
+
+nb.perf <-
+  table(nb.pred,
+        diamonds2.validate$price,
+        dnn = c("Actual", "Predicted"))
+nb.perf
+sum(nb.pred ==  diamonds2.validate$price) / nrow(diamonds2.validate)
+```
+
+The Naive Bayes prediction model shows an accuracy of 0.7977, which is the lowest in the models we selected. 
+
+
+Table 2. Decision tree prediction results.
+
+```{r tree, message=FALSE, warning=FALSE, echo=FALSE}
+set.seed(123)
+
+fit.tree <- rpart(price ~ . + I(depth ^ 2) + I(table ^ 2), 
+                  data = diamonds2.train,
+                  method = "class")
+
+tree.pred <- predict(fit.tree, diamonds2.validate, type = "class")
+
+tree.perf <-
+  table(tree.pred,
+        diamonds2.validate$price,
+        dnn = c("Actual", "Predicted"))
+tree.perf
+sum(tree.pred ==  diamonds2.validate$price) / nrow(diamonds2.validate)
+```
+
+The Decision Tree prediction model shows an accuracy of 0.8583, which is the second lowest in the models we selected.
+
+
+Table 3. Conditional inference tree prediction results.
+
+```{r ctree, echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(123)
+fit.ctree <- ctree(price ~ . + I(depth ^ 2) + I(table ^ 2), data = diamonds2.train)
+ctree.pred <-
+  predict(fit.ctree, diamonds2.validate, type = "response")
+ctree.perf <-
+  table(ctree.pred,
+        diamonds2.validate$price,
+        dnn = c("Actual", "Predicted"))
+ctree.perf
+sum(ctree.pred ==  diamonds2.validate$price) / nrow(diamonds2.validate)
+```
+
+The Conditional Inference Tree prediction model shows an accuracy of 0.8997, which is the third lowest in the models we selected.
+
+
+Table 4. Random forest prediction results.
+
+```{r rf, message=FALSE, warning=FALSE, echo=FALSE}
+set.seed(123)
+fit.rf <- randomForest(price ~ . + I(depth ^ 2) + I(table ^ 2), data = diamonds2.train)
+
+rf.pred <- predict(fit.rf, diamonds2.validate, type = "response")
+
+rf.perf <-
+  table(rf.pred,
+        diamonds2.validate$price,
+        dnn = c("Actual", "Predicted"))
+rf.perf
+sum(rf.pred ==  diamonds2.validate$price) / nrow(diamonds2.validate)
+```
+
+The Random Forest prediction model shows an accuracy of 0.9139, which is the highest in the models we selected.
+  
+
+Table 5. Supported vector machine prediction results.
+
+```{r svm, message=FALSE, warning=FALSE, echo=FALSE}
+set.seed(123)
+fit.svm <- svm(price ~ . + I(depth ^ 2) + I(table ^ 2), data = diamonds2.train)
+
+svm.pred <- predict(fit.svm, diamonds2.validate, type = "response")
+
+svm.perf <-
+  table(svm.pred,
+        diamonds2.validate$price,
+        dnn = c("Actual", "Predicted"))
+svm.perf
+sum(svm.pred ==  diamonds2.validate$price) / nrow(diamonds2.validate)
+```
+
+The Supported Vector Machine prediction model shows an accuracy of 0.9010, which is the second highest in the models we selected.
+
+
+### IV. Conclusion
+
+According to correlation analysis, carat has the largest correlation coefficient with the predictive variable price with a coefficient of 0.92. The main factors that affect price are diamond weight (carat), cut, quality, color, clarity, and percentage of total depth. We conducted model selection by starting with a linear model of all variables and altered the model to satisfy OLS assumptions, such as no multicollinearity and second order effects.
+
+After we determined the regression, we used Naive Bayes, Decision tree, Conditional Inference Tree, Random Forest, and Support Vector Machines models to select the best prediction model. The data was divided between a training set and a test set to validate these machine learning models and determine which method gets the highest accuracy. The results show that the Random Forest model can obtain the highest accurate value of 91.39%.
+
+As can be seen from the results, the test results that categorize variables, remove unimportant variables, etc., are better than the test results that are not removed. We can use this model to judge the price and trend of the current diamond market more accurately, so as to better choose suitable diamond products and price range and avoid being misled or cheated by price fluctuations. Investors in the diamond industry can also use this model to better understand the supply and demand situation of the diamond market, the causes and trends of price fluctuations, as well as the competitive landscape of the market. So as to better develop marketing strategy.
+
+But there are some drawbacks to our study. For example, there are errors in the prediction results, which may be due to the insufficient correlation between independent variables and dependent variables, the small number of independent variables considered and the small sample size of data. We can add independent variables with higher correlation with dependent variables to improve the accuracy and prediction ability of the model. In the meantime, we can get more diamond data from reliable websites to solve this problem. Examples include Idex-Idex and GemKonnect. In addition, we notice in Figure A2 a spike in the number of diamond weights just above one carat, which can be explained by consumer preference against diamonds just below the one carat threshold. This can be potentially explored using a regression discontinuity model to identify consumer preference and producer preference for diamonds at this one carat threshold.
+
+
+### Appendix
+
+Table A1 Variable description.
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+vdescription <- read_excel("vdescription.xlsx")
+print(vdescription)
+```
+
+Table A2. Summary of diamond prices.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+summary(diamonds1$price)
+```
+
+Table A3. Summary of diamond weights.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+summary(diamonds1$carat)
+```
+
+Table A4. Anderson-Darling test.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+very_good <- subset(diamonds1, cut == "Very Good")
+premium <- subset(diamonds1, cut == "Premium")
+ad.test(scale(diamonds1$price))
+```
+
+Table A5. Wilcoxon rank sum and signed rank test.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+wilcox.test(very_good$price, premium$price, alternative = "less")
+```
+
+Table A6. Linear regression with no second order variables.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+summary(fit)
+```
+
+Table A7. Variance inflation factor for multicolinearity.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+outlierTest(fit)
+diamonds1 <- diamonds1[-c(16284,
+                          23645,
+                          19340,
+                          19347,
+                          21863,
+                          22429,
+                          21759,
+                          19867,
+                          17197,
+                          23540), ]
+vif(fit) 
+```
+
+Table A8. Correlation between numeric variables.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+subs<-diamonds1[, c("carat","depth","table","price","x","y","z")]
+cor(subs)
+```
+
+Table A9. Linear regression with no second order variables and no x, y, z.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+summary(fit1)
+```
+
+Table A10. Variance inflation factor for multicolinearity after removing x, y, and z.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+vif(fit1)
+```
+
+Table A11. Linear regression with all variables and second order variables.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+summary(fit2)
+```
+
+Figure A1. Distribution of diamond prices.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+hist(
+  diamonds1$price,
+  col = c("grey"),
+  freq = F,
+  xlab = "price",
+  main = "Distribution of Diamond Prices"
+)
+lines(density(diamonds1$price), col = "red", lwd = 2)
+
+xfit <- seq(min(diamonds1$price), max(diamonds1$price), length = 100)
+yfit <-
+  dnorm(xfit,
+        mean = mean(diamonds1$price),
+        sd = sd(diamonds1$price))
+lines(xfit, yfit, col = "blue", lwd = 2)
+```
+
+Figure A2. Distribution of diamond weights.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+hist(
+  diamonds1$carat,
+  col = c("grey"),
+  freq = F,
+  xlab = "carat",
+  main = "Distribution of Diamond Weights"
+)
+lines(density(diamonds1$carat), col = "red", lwd = 2)
+xfit <- seq(min(diamonds1$carat), max(diamonds1$carat), length = 100)
+yfit <-
+  dnorm(xfit,
+        mean = mean(diamonds1$carat),
+        sd = sd(diamonds1$carat))
+lines(xfit, yfit, col = "blue", lwd = 2)
+```
+
+Figure A3. Distributions of diamond cuts.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+ggplot(data = diamonds1, aes(x = price, fill = cut)) + 
+  geom_density(alpha =.3)
+```
+
+Figure A4. Variable screening for model selection.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+leaps <- regsubsets(price ~ ., data = diamonds1, nbest = 8)
+plot(leaps, scale = "adjr2")
+```
+
+Figure A5. Histogram of diamond prices.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+hist(price)
+```
